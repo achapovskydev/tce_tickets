@@ -73,6 +73,12 @@ def get_count_with_selenium(search_text: str,
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1200,800")
     options.add_argument("--ignore-certificate-errors")
+    
+    # Автоматическое определение пути к Chrome (для GitHub Actions)
+    chrome_bin = os.getenv("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+        logging.info("Используется Chrome из CHROME_BIN: %s", chrome_bin)
 
     service = ChromeService()
     driver = None
