@@ -79,6 +79,13 @@ def get_count_with_selenium(search_text: str,
     if chrome_bin:
         options.binary_location = chrome_bin
         logging.info("Используется Chrome из CHROME_BIN: %s", chrome_bin)
+    else:
+        # Пробуем стандартный путь Google Chrome (для GitHub Actions)
+        import shutil
+        chrome_path = shutil.which("google-chrome-stable")
+        if chrome_path:
+            options.binary_location = chrome_path
+            logging.info("Используется Chrome: %s", chrome_path)
 
     service = ChromeService()
     driver = None
