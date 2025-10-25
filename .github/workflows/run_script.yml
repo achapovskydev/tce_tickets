@@ -20,6 +20,7 @@ jobs:
       uses: browser-actions/setup-chrome@v1
       with:
         chrome-version: stable
+      id: setup-chrome
     
     - name: Install Python dependencies
       run: |
@@ -30,4 +31,5 @@ jobs:
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
+        CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
       run: python tce_telegram_monitor.py
