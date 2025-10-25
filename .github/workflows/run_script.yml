@@ -1,0 +1,33 @@
+name: Run TCE Monitor Every 10 Minutes
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:  # Позволяет запускать вручную
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y chromium-browser chromium-chromedriver
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run TCE monitor script
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: python tce_telegram_monitor.py
