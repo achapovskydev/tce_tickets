@@ -144,7 +144,7 @@ def main_once():
     try:
         # Поиск по первому запросу
         count1, has_future_date1 = get_count_with_selenium(
-            SEARCH_TEXT, "2025-10-27")
+            SEARCH_TEXT, "2025-11-27")
         if has_future_date1:
             message_parts.append(f"⚠️ <b>Найдено {count1} мероприятий</b>\n"
                                  f"По запросу: <i>{SEARCH_TEXT}</i>\n"
