@@ -3,7 +3,7 @@ name: Run TCE Monitor Every 10 Minutes
 on:
   schedule:
     - cron: '*/10 * * * *'
-  workflow_dispatch:  # Позволяет запускать вручную
+  workflow_dispatch:
 
 jobs:
   run-script:
@@ -17,25 +17,19 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Setup Chrome and ChromeDriver
+    - name: Setup Chrome
       run: |
+        # Удаляем старый ChromeDriver, если он есть
+        sudo apt-get remove -y chromedriver
+        sudo rm -f /usr/bin/chromedriver
+        sudo rm -f /usr/local/bin/chromedriver
+
         # Устанавливаем Google Chrome
         wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
         sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
-
-        # Устанавливаем совместимый ChromeDriver
-        CHROME_VERSION=$(google-chrome-stable --version | awk '{print $3}' | cut -d '.' -f 1)
-        CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}")
-        curl -s -o /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
-        unzip /tmp/chromedriver.zip -d /tmp/
-        chmod +x /tmp/chromedriver
-        sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
-
-        # Проверяем установку
         google-chrome-stable --version
-        chromedriver --version
 
     - name: Install Python dependencies
       run: |
