@@ -72,7 +72,9 @@ def get_count_with_selenium(search_text: str) -> int:
         options.binary_location = chrome_bin
         logging.info("Используется Chrome из CHROME_BIN: %s", chrome_bin)
 
-    service = ChromeService(executable_path=ChromeDriverManager().install())
+    # Устанавливаем ChromeDriver через webdriver-manager
+    driver_path = ChromeDriverManager().install()
+    service = ChromeService(executable_path=driver_path)
     driver = None
     try:
         driver = webdriver.Chrome(service=service, options=options)
