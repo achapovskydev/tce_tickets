@@ -2,13 +2,11 @@
 """
 tce_telegram_monitor.py
 Мониторит tce.by/search.html по запросам SEARCH_TEXT и SEARCH_TEXT_2
-и шлёт сообщение в Telegram, если найдено мероприятие с датой > заданной.
+и шлёт сообщение в Telegram, если количество найденных строк не равно 5 или 4.
 """
 import os
-import time
 import logging
 import subprocess
-from datetime import datetime
 from dotenv import load_dotenv
 import requests
 from selenium import webdriver
@@ -18,6 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Загрузка .env
 load_dotenv()
@@ -26,9 +25,10 @@ CHAT_ID = os.getenv("CHAT_ID")
 SEARCH_TEXT = os.getenv("SEARCH_TEXT", "Записки юного врача")
 SEARCH_TEXT_2 = os.getenv("SEARCH_TEXT_2", "На чёрной")
 URL = os.getenv("URL", "https://tce.by/search.html")
-# Пороги
-THRESHOLD = int(os.getenv("THRESHOLD", "1"))
-THRESHOLD_2 = int(os.getenv("THRESHOLD_2", "2"))
+
+# Ожидаемое количество строк
+EXPECTED_COUNT_1 = 5
+EXPECTED_COUNT_2 = 4
 
 # Логи
 logging.basicConfig(
@@ -57,18 +57,8 @@ def send_telegram(text: str):
         logging.exception("Ошибка отправки в Telegram: %s", e)
         return False
 
-def parse_date_from_row(row):
-    """Парсит дату из первой ячейки строки."""
-    date_cell = row.find_element(By.CSS_SELECTOR, "td:first-child")
-    date_str = date_cell.text.strip()
-    try:
-        date = datetime.strptime(date_str.split()[0], "%Y-%m-%d").date()
-        return date
-    except Exception:
-        return None
-
-def get_count_with_selenium(search_text: str, date_limit: str) -> tuple[int, bool]:
-    """Возвращает (количество найденных, есть ли дата > date_limit)"""
+def get_count_with_selenium(search_text: str) -> int:
+    """Возвращает количество найденных строк."""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -82,7 +72,7 @@ def get_count_with_selenium(search_text: str, date_limit: str) -> tuple[int, boo
         options.binary_location = chrome_bin
         logging.info("Используется Chrome из CHROME_BIN: %s", chrome_bin)
 
-    service = ChromeService()
+    service = ChromeService(executable_path=ChromeDriverManager().install())
     driver = None
     try:
         driver = webdriver.Chrome(service=service, options=options)
@@ -99,18 +89,11 @@ def get_count_with_selenium(search_text: str, date_limit: str) -> tuple[int, boo
                 EC.presence_of_element_located((By.CSS_SELECTOR, "#playbill tbody tr")))
         except TimeoutException:
             logging.info("[%s] Нет результатов -> 0", search_text)
-            return 0, False
+            return 0
         rows = driver.find_elements(By.CSS_SELECTOR, "#playbill tbody tr")
         count = len(rows)
-        has_future_date = False
-        limit_date = datetime.strptime(date_limit, "%Y-%m-%d").date()
-        for row in rows:
-            date = parse_date_from_row(row)
-            if date and date > limit_date:
-                has_future_date = True
-                break
-        logging.info("[%s] Найдено %d тр., дата > %s: %s", search_text, count, date_limit, has_future_date)
-        return count, has_future_date
+        logging.info("[%s] Найдено %d строк", search_text, count)
+        return count
     except WebDriverException as e:
         logging.exception("WebDriver ошибка: %s", e)
         raise
@@ -125,21 +108,21 @@ def main_once():
     check_chrome_chromedriver_versions()
     message_parts = []
     try:
-        count1, has_future_date1 = get_count_with_selenium(SEARCH_TEXT, "2025-11-27")
-        if has_future_date1:
-            message_parts.append(f"⚠️ <b>Найдено {count1} мероприятий</b>\n"
-                                 f"По запросу: <i>{SEARCH_TEXT}</i>\n"
-                                 f"Есть дата > 2025-11-27\n")
-        count2, has_future_date2 = get_count_with_selenium(SEARCH_TEXT_2, "2025-11-13")
-        if has_future_date2:
-            message_parts.append(f"⚠️ <b>Найдено {count2} мероприятий</b>\n"
-                                 f"По запросу: <i>{SEARCH_TEXT_2}</i>\n"
-                                 f"Есть дата > 2025-11-13\n")
+        count1 = get_count_with_selenium(SEARCH_TEXT)
+        count2 = get_count_with_selenium(SEARCH_TEXT_2)
+
+        if count1 != EXPECTED_COUNT_1:
+            message_parts.append(f"⚠️ <b>Изменение по запросу: {SEARCH_TEXT}</b>\n"
+                                 f"Ожидалось: {EXPECTED_COUNT_1}, найдено: {count1}\n")
+        if count2 != EXPECTED_COUNT_2:
+            message_parts.append(f"⚠️ <b>Изменение по запросу: {SEARCH_TEXT_2}</b>\n"
+                                 f"Ожидалось: {EXPECTED_COUNT_2}, найдено: {count2}\n")
+
         if message_parts:
             final_message = "\n".join(message_parts) + f"\n\n{URL}"
             send_telegram(final_message)
         else:
-            logging.info("Ничего нового не найдено по обоим запросам.")
+            logging.info("Количество строк соответствует ожидаемому.")
     except Exception as e:
         logging.exception("Ошибка при получении данных: %s", e)
         send_telegram(f"❗ Ошибка мониторинга: {e}")
