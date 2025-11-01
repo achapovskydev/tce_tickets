@@ -31,8 +31,8 @@ SEARCH_TEXT_2 = os.getenv("SEARCH_TEXT_2", "На чёрной")
 URL = os.getenv("URL", "https://tce.by/search.html")
 
 # Ожидаемое количество строк
-EXPECTED_COUNT_1 = 5
-EXPECTED_COUNT_2 = 4
+EXPECTED_COUNT_1 = 4
+EXPECTED_COUNT_2 = 3
 
 # Логи
 logging.basicConfig(
