@@ -20,8 +20,6 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
-import platform
-import re
 
 # Загрузка .env
 load_dotenv()
@@ -60,48 +58,55 @@ def check_chrome_chromedriver_versions():
 
 
 def make_executable_if_needed(path: str):
-    """Если путь указывает на бинарный файл, сделать его исполняемым."""
+    """Если путь указывает на файл, сделать его исполняемым для текущего пользователя."""
     try:
         if os.path.exists(path) and not os.path.isdir(path):
             st = os.stat(path)
-            # добавляем бит исполнимости для текущего пользователя
             os.chmod(path, st.st_mode | stat.S_IXUSR)
             logging.debug("Установлен бит исполняемости для %s", path)
     except Exception as e:
         logging.warning("Не удалось установить права исполняемости для %s: %s", path, e)
 
 
+def is_name_notice_like(name: str) -> bool:
+    """Определяем, выглядит ли имя файла как NOTICE / THIRD_PARTY / вспомогательный."""
+    ln = name.lower()
+    if "notice" in ln or "third_party" in ln or ln.endswith(".txt") or ln.endswith(".md"):
+        return True
+    return False
+
+
 def is_likely_executable_candidate(filename: str) -> bool:
     """
     Определяем, является ли имя файла кандидатом на исполняемый chromedriver.
     Приоритет — точное совпадение 'chromedriver' / 'chromedriver.exe'.
-    Также допускаем имена содержащие 'chromedriver' без точечного суффикса (чтобы не захватить файлы-нотиссы).
+    Также допускаем имена, содержащие 'chromedriver' и не выглядящие как notice.
     """
     name = os.path.basename(filename).lower()
     if name in ("chromedriver", "chromedriver.exe"):
         return True
-    # допускаем варианты вроде chromedriver-linux64 (без расширения), но отбрасываем файлы с точкой в конце имени (например THIRD_PARTY_NOTICES.chromedriver)
-    if "chromedriver" in name and "." not in name:
+    if "chromedriver" in name and not is_name_notice_like(name):
+        # допускаем вариации вроде chromedriver-linux64
         return True
     return False
 
 
 def resolve_chromedriver_path(driver_path: str) -> str:
     """
-    webdriver-manager иногда возвращает путь к директории с бинарями.
-    Если это директория — пытаемся найти исполняемый chromedriver внутри неё.
-    Возвращаем путь к исполняемому файлу.
+    webdriver-manager иногда возвращает путь к файлу-нотису (например THIRD_PARTY_NOTICES.chromedriver)
+    или к директории. Здесь ищем реальный исполняемый chromedriver и возвращаем путь к нему.
     """
     logging.info("Raw webdriver-manager path: %s", driver_path)
-    # Если указали прямо файл — убедимся, что это бинарь, и сделаем его исполняемым.
+
+    # Если путь — файл и явно подходит как chromedriver — используем его
     if os.path.isfile(driver_path):
-        make_executable_if_needed(driver_path)
-        # проверим, не выглядит ли файл как заметка / txt
-        basename = os.path.basename(driver_path).lower()
-        if is_likely_executable_candidate(basename) or os.access(driver_path, os.X_OK):
+        basename = os.path.basename(driver_path)
+        if is_likely_executable_candidate(basename) and not is_name_notice_like(basename):
+            make_executable_if_needed(driver_path)
             logging.info("Используется chromedriver бинарь: %s", driver_path)
             return driver_path
-        # если файл не исполняемый и не совпадает по имени, попробуем поиск в родительской директории
+        # если файл выглядит как notice/дополнительный — будем искать рядом
+        logging.info("Возвращён файл, но он не выглядит как исполняемый chromedriver: %s", driver_path)
         driver_dir = os.path.dirname(driver_path)
     else:
         driver_dir = driver_path
@@ -109,22 +114,27 @@ def resolve_chromedriver_path(driver_path: str) -> str:
     if not os.path.isdir(driver_dir):
         raise FileNotFoundError(f"Ожидалась директория с драйвером, но её нет: {driver_dir}")
 
-    # Ищем кандидатов по имени и по факту исполняемости
+    # ищем кандидатов в директории и поддиректориях
     candidates = []
     for root, _, files in os.walk(driver_dir):
         for f in files:
-            full = os.path.join(root, f)
             if is_likely_executable_candidate(f):
+                full = os.path.join(root, f)
+                # отбрасываем явно маленькие/документные файлы
+                try:
+                    if os.path.getsize(full) < 2048:
+                        continue
+                except Exception:
+                    pass
                 candidates.append(full)
-    # Если не нашли явных кандидатов по имени — попробуем отобрать по правам/размеру и отсутствию "notice"/"third_party"
+
+    # если не нашли по имени, попробуем любые подходящие большие бинарные файлы, исключив notice-файлы
     if not candidates:
         for root, _, files in os.walk(driver_dir):
             for f in files:
-                lf = f.lower()
-                if "notice" in lf or "third_party" in lf or lf.endswith(".txt") or lf.endswith(".md"):
+                if is_name_notice_like(f):
                     continue
                 full = os.path.join(root, f)
-                # отфильтруем явно маленькие файлы
                 try:
                     if os.path.getsize(full) < 2048:
                         continue
@@ -135,7 +145,7 @@ def resolve_chromedriver_path(driver_path: str) -> str:
     if not candidates:
         raise FileNotFoundError(f"Не найден исполняемый chromedriver в директории {driver_dir}")
 
-    # Сортируем кандидатов: предпочитаем точное имя chromedriver, затем исполняемые файлы
+    # сортируем кандидатов: предпочитаем точное имя chromedriver и исполняемые файлы
     def score(path):
         name = os.path.basename(path).lower()
         s = 0
@@ -143,21 +153,17 @@ def resolve_chromedriver_path(driver_path: str) -> str:
             s += 100
         if os.access(path, os.X_OK):
             s += 50
-        # отрицание для файлов с точкой (чтобы отсеять THIRD_PARTY_NOTICES.chromedriver)
-        if "." in name and not name.endswith(".exe"):
-            s -= 20
-        # чуть выше — большие файлы приятнее
+        if "chromedriver" in name:
+            s += 20
         try:
             s += min(20, os.path.getsize(path) // 1024)
         except Exception:
             pass
-        return -s  # для сортировки по убыванию
+        return -s
 
     candidates = sorted(candidates, key=score)
-
     chosen = candidates[0]
     make_executable_if_needed(chosen)
-
     logging.info("Выбран chromedriver: %s", chosen)
     return chosen
 
@@ -176,7 +182,7 @@ def send_telegram(text: str):
 
 
 def get_count_with_selenium(search_text: str) -> int:
-    """Возвращает количество найденных строк."""
+    """Возвращает количество найденных строк на странице поиска."""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -190,6 +196,7 @@ def get_count_with_selenium(search_text: str) -> int:
         options.binary_location = chrome_bin
         logging.info("Используется Chrome из CHROME_BIN: %s", chrome_bin)
 
+    # webdriver-manager может вернуть путь к директории или файлу; разрешаем его в реальный бинарь
     raw_driver_path = ChromeDriverManager().install()
     driver_binary = resolve_chromedriver_path(raw_driver_path)
 
