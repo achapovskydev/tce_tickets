@@ -32,7 +32,7 @@ URL = os.getenv("URL", "https://tce.by/search.html")
 
 # Ожидаемое количество строк
 EXPECTED_COUNT_1 = 4
-EXPECTED_COUNT_2 = 4
+EXPECTED_COUNT_2 = 3
 
 # Логи
 logging.basicConfig(
